@@ -5,3 +5,9 @@ spring:
     url: jdbc:postgresql://localhost:5432/cdlab_chat
     username: cdlab
     password: cdlab
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
