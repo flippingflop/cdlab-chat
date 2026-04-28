@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: cdlab-chat
+  datasource:
+    url: jdbc:postgresql://localhost:5432/cdlab_chat
+    username: cdlab
+    password: cdlab
