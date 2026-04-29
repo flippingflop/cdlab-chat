@@ -2,8 +2,8 @@ package com.cdlab.cdlabchat.event;
 
 import com.cdlab.cdlabchat.common.exception.BusinessException;
 import com.cdlab.cdlabchat.common.exception.ErrorCode;
-import com.cdlab.cdlabchat.event.dto.CollectEventRequest;
-import com.cdlab.cdlabchat.event.dto.CollectEventResponse;
+import com.cdlab.cdlabchat.event.dto.SaveEventRequest;
+import com.cdlab.cdlabchat.event.dto.SaveEventResponse;
 import com.cdlab.cdlabchat.session.Session;
 import com.cdlab.cdlabchat.session.SessionRepository;
 import com.cdlab.cdlabchat.user.User;
@@ -41,7 +41,7 @@ public class EventService {
     }
 
     @Transactional
-    public CollectEventResponse collect(Long sessionId, User currentUser, CollectEventRequest request) {
+    public SaveEventResponse saveEvent(Long sessionId, User currentUser, SaveEventRequest request) {
         // 1) 세션 조회 / 검증
         Session session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
@@ -64,7 +64,7 @@ public class EventService {
         UUID clientEventId = request.getClientEventId();
         Optional<Event> existing = eventRepository.findByClientEventId(clientEventId);
         if (existing.isPresent()) {
-            return CollectEventResponse.from(existing.get());
+            return SaveEventResponse.from(existing.get());
         }
 
         // 4) 핸들러 디스패치
@@ -80,11 +80,11 @@ public class EventService {
         //    동시에 같은 client_event_id 가 들어와 선조회를 모두 통과한 경우, DB unique 가 한쪽을 막는다.
         try {
             Event saved = handler.handle(session, currentUser, payload, clientEventId);
-            return CollectEventResponse.from(saved);
+            return SaveEventResponse.from(saved);
         } catch (DataIntegrityViolationException e) {
             Event found = eventRepository.findByClientEventId(clientEventId)
                     .orElseThrow(() -> e);
-            return CollectEventResponse.from(found);
+            return SaveEventResponse.from(found);
         }
     }
 }

@@ -2,8 +2,8 @@ package com.cdlab.cdlabchat.event;
 
 import com.cdlab.cdlabchat.common.auth.CurrentUser;
 import com.cdlab.cdlabchat.common.response.ApiResponse;
-import com.cdlab.cdlabchat.event.dto.CollectEventRequest;
-import com.cdlab.cdlabchat.event.dto.CollectEventResponse;
+import com.cdlab.cdlabchat.event.dto.SaveEventRequest;
+import com.cdlab.cdlabchat.event.dto.SaveEventResponse;
 import com.cdlab.cdlabchat.user.User;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -21,11 +21,11 @@ public class EventController {
     private final EventService eventService;
 
     @PostMapping
-    public ApiResponse<CollectEventResponse> collect(
+    public ApiResponse<SaveEventResponse> saveEvent(
             @CurrentUser User currentUser,
             @PathVariable Long sessionId,
-            @Valid @RequestBody CollectEventRequest request
+            @Valid @RequestBody SaveEventRequest request
     ) {
-        return ApiResponse.of(eventService.collect(sessionId, currentUser, request));
+        return ApiResponse.of(eventService.saveEvent(sessionId, currentUser, request));
     }
 }

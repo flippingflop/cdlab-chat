@@ -11,7 +11,7 @@ import java.util.UUID;
 
 @Getter
 @AllArgsConstructor
-public class CollectEventResponse {
+public class SaveEventResponse {
 
     private final Long eventId;
     private final Long sessionId;
@@ -20,8 +20,8 @@ public class CollectEventResponse {
     private final UUID clientEventId;
     private final Instant createdAt;
 
-    public static CollectEventResponse from(Event event) {
-        return new CollectEventResponse(
+    public static SaveEventResponse from(Event event) {
+        return new SaveEventResponse(
                 event.getId(),
                 event.getSessionId(),
                 event.getEventType(),

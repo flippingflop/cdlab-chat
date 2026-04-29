@@ -12,7 +12,7 @@ import java.util.UUID;
 @Getter
 @Setter
 @NoArgsConstructor
-public class CollectEventRequest {
+public class SaveEventRequest {
 
     @NotNull(message = "eventType 은 필수입니다.")
     private EventType eventType;

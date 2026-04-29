@@ -104,11 +104,11 @@ public Session create(User creator, Long joinerId) {
 
 API 마다 별도의 Request / Response DTO 를 둔다. 명칭은 **컨트롤러 메서드명 prefix + 리소스 + Request/Response**:
 
-| 컨트롤러 메서드 | Request DTO | Response DTO |
-|---|---|---|
-| `SessionController#create` | `CreateSessionRequest` | `CreateSessionResponse` |
-| `MessageController#edit` | `EditMessageRequest` | `EditMessageResponse` |
-| `EventController#collect` | `CollectEventRequest` | `CollectEventResponse` |
+| 컨트롤러 메서드                    | Request DTO          | Response DTO            |
+|-----------------------------|----------------------|-------------------------|
+| `SessionController#create`  | `CreateSessionRequest` | `CreateSessionResponse` |
+| `MessageController#edit`    | `EditMessageRequest` | `EditMessageResponse`   |
+| `EventController#saveEvent` | `SaveEventRequest`   | `SaveEventResponse`     |
 
 이유:
 
