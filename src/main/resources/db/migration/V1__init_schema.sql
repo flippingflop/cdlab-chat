@@ -7,8 +7,8 @@ CREATE TABLE users (
     created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT INTO users (name) VALUES ('Alice');
-INSERT INTO users (name) VALUES ('Bob');
+INSERT INTO users (name) VALUES ('user1');
+INSERT INTO users (name) VALUES ('user2');
 
 -- ============================================================
 -- sessions
