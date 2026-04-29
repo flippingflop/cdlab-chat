@@ -15,6 +15,8 @@ public enum ErrorCode {
     SESSION_ENDED(HttpStatus.CONFLICT, "이미 종료된 세션입니다."),
     FORBIDDEN_PARTICIPANT(HttpStatus.FORBIDDEN, "세션 참여자만 접근할 수 있습니다."),
     MESSAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 메시지입니다."),
+    MESSAGE_ALREADY_DELETED(HttpStatus.CONFLICT, "이미 삭제된 메시지입니다."),
+    FORBIDDEN_MESSAGE_OWNER(HttpStatus.FORBIDDEN, "본인이 작성한 메시지만 수정/삭제할 수 있습니다."),
     INVALID_EVENT_PAYLOAD(HttpStatus.BAD_REQUEST, "이벤트 payload 가 올바르지 않습니다."),
     UNSUPPORTED_EVENT_TYPE(HttpStatus.BAD_REQUEST, "지원하지 않는 이벤트 타입입니다.");
 
