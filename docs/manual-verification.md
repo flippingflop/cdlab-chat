@@ -260,6 +260,154 @@ curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/end" \
 
 ---
 
+## connection
+
+### 사전 컨텍스트
+
+WebSocket 미채택. `connect`/`disconnect` 는 운영 환경의 WebSocket open/close 핸들러를 REST 로 시뮬레이션한다 (design-decision.md "웹소켓 미구현" 참조). 클라이언트는 JOIN/RECONNECT/DISCONNECT 를 명시 발행하지 않으며, 서버가 events 조회로 자동 분기 발행한다.
+
+| EventType | client-emitted | 발행 시점 | client_event_id |
+|-----------|----------------|-----------|------------------|
+| JOIN | X (server) | 첫 connect | NULL |
+| RECONNECT | X (server) | 후속 connect | NULL |
+| DISCONNECT | X (server) | disconnect (online 상태에서) | NULL |
+
+이하 예시는 `SESSION_ID` 가 SUSPENDED 세션이라고 가정한다 (음성 케이스에서 ENDED 검증).
+
+### 첫 connect — `POST /api/sessions/{sessionId}/connect`
+
+events 에 `(sessionId, userId, JOIN)` row 가 없으면 서버가 JOIN 을 발행한다.
+
+```bash
+SESSION_ID=1
+
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/connect" \
+  -H "X-User-Id: 1"
+```
+
+기대 응답 (본문 예시):
+
+```json
+{
+  "data": {
+    "sessionId": 1,
+    "userId": 1,
+    "eventType": "JOIN",
+    "eventId": ...,
+    "createdAt": "2026-04-30T..."
+  }
+}
+```
+
+검증 포인트:
+
+- `data.eventType == "JOIN"`
+- DB 확인: `events` 에 row 1건 추가 → `event_type='JOIN'`, `user_id=1`, `client_event_id IS NULL`, `payload={}`
+- in-memory presence (MockSessionManager) 는 외부 관찰 불가 — `presence 응답 부착` 단계 도입 후 GET `/api/sessions` 응답으로 간접 검증
+
+### 후속 connect — RECONNECT 발행
+
+같은 `(sessionId, userId)` 로 connect 재호출.
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/connect" \
+  -H "X-User-Id: 1"
+```
+
+검증 포인트:
+
+- `data.eventType == "RECONNECT"`
+- DB 확인: `events` 에 RECONNECT row 추가, 기존 JOIN row 는 그대로 유지 (events 는 immutable)
+- 몇 번을 재호출해도 두 번째 이후는 항상 RECONNECT — events 의 JOIN row 가 분기 기준이므로 멱등 키 없이도 자연 분기
+
+### disconnect — `POST /api/sessions/{sessionId}/disconnect`
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/disconnect" \
+  -H "X-User-Id: 1"
+```
+
+기대 응답 (본문 예시):
+
+```json
+{
+  "data": {
+    "sessionId": 1,
+    "userId": 1,
+    "eventType": "DISCONNECT",
+    "eventId": ...,
+    "createdAt": "2026-04-30T...",
+    "noop": false
+  }
+}
+```
+
+검증 포인트:
+
+- `data.eventType == "DISCONNECT"`, `data.noop == false`
+- DB 확인: `events` 에 DISCONNECT row 추가, `client_event_id IS NULL`
+- 후속 connect 호출 시 JOIN 이 아니라 RECONNECT 가 발행됨 — events 의 JOIN row 가 이미 있기 때문 (disconnect 가 그것을 지우지 않음)
+
+#### 멱등 — offline 상태 disconnect 재호출
+
+이미 offline 인 user 가 disconnect 를 재호출.
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/disconnect" \
+  -H "X-User-Id: 1"
+```
+
+기대 응답 (본문 예시):
+
+```json
+{
+  "data": {
+    "sessionId": 1,
+    "userId": 1,
+    "eventType": "DISCONNECT",
+    "eventId": null,
+    "createdAt": null,
+    "noop": true
+  }
+}
+```
+
+검증 포인트:
+
+- HTTP 200, `data.noop == true`, `data.eventId / createdAt == null`
+- DB 확인: `events` 에 row **추가되지 않음** — stale DISCONNECT 누적 방지 (멱등성)
+
+### 음성 케이스
+
+비멤버 호출 → `403 FORBIDDEN_PARTICIPANT`:
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/connect" \
+  -H "X-User-Id: 3"
+```
+
+존재하지 않는 세션 → `404 SESSION_NOT_FOUND`:
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/9999/connect" \
+  -H "X-User-Id: 1"
+```
+
+ENDED 세션 connect/disconnect → `409 SESSION_ENDED`:
+
+```bash
+# 먼저 SESSION_ID 를 /end 로 종료시킨 뒤
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/connect" \
+  -H "X-User-Id: 1"
+```
+
+검증 포인트:
+
+- HTTP 409, errorCode `SESSION_ENDED`
+- "끝난 세션엔 누구도 online 아님" invariant 와 일관 — `LeaveHandler` 의 `clearSession` 으로 in-memory presence 도 동시 정리됨 (외부 관찰은 presence 부착 단계 이후)
+
+---
+
 ## event
 
 이하 예시에서 `SESSION_ID` 는 위에서 생성한 세션의 `data.id`,
