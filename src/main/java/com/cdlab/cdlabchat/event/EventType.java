@@ -13,12 +13,17 @@ public enum EventType {
     /**
      * 클라이언트가 발행하는 이벤트인지 여부.
      * - true  → client_event_id 필수 (idempotency 키)
-     * - false → server-emitted (DISCONNECT/RECONNECT/SESSION_ENDED), client_event_id NULL
+     * - false → server-emitted, client_event_id NULL
+     *
+     * JOIN/RECONNECT 도 server-emitted —
+     *   트리거가 connect REST(WebSocket 시뮬레이션) 이고, 클라이언트가 명시 발행하지 않는다.
+     *   서버가 events 조회로 (sessionId, userId, JOIN) row 존재 여부에 따라 자동 분기 발행한다.
+     *   멱등은 client_event_id 가 아니라 events 자체의 row 존재 여부로 자연 분기됨.
      */
     public boolean isClientEmitted() {
         return switch (this) {
-            case MESSAGE_CREATED, MESSAGE_EDITED, MESSAGE_DELETED, JOIN, LEAVE -> true;
-            case DISCONNECT, RECONNECT, SESSION_ENDED -> false;
+            case MESSAGE_CREATED, MESSAGE_EDITED, MESSAGE_DELETED, LEAVE -> true;
+            case JOIN, RECONNECT, DISCONNECT, SESSION_ENDED -> false;
         };
     }
 

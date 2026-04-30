@@ -1,4 +1,4 @@
-package com.cdlab.cdlabchat.session;
+package com.cdlab.cdlabchat.connection;
 
 import org.springframework.stereotype.Component;
 
@@ -22,7 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * 호출해도 추가 사전준비 없이 동작한다.
  *
  * 명명 주의 — 본 클래스의 "session" 은 WebSocket connection lifetime 을 가리키며,
- * 본 프로젝트의 채팅 도메인 Session 엔티티와는 무관하다. 같은 패키지에 두되 책임이 다름.
+ * 본 프로젝트의 채팅 도메인 Session 엔티티와는 무관하다. connection 패키지로 분리해
+ * 도메인과 시뮬레이션 책임을 코드 단에서 구분한다.
  */
 @Component
 public class MockSessionManager {

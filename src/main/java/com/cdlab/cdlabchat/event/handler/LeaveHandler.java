@@ -5,7 +5,7 @@ import com.cdlab.cdlabchat.event.EventHandler;
 import com.cdlab.cdlabchat.event.EventRepository;
 import com.cdlab.cdlabchat.event.EventType;
 import com.cdlab.cdlabchat.event.ServerEventEmitter;
-import com.cdlab.cdlabchat.session.MockSessionManager;
+import com.cdlab.cdlabchat.connection.MockSessionManager;
 import com.cdlab.cdlabchat.session.Session;
 import com.cdlab.cdlabchat.user.User;
 import lombok.RequiredArgsConstructor;
