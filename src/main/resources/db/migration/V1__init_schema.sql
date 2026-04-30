@@ -17,12 +17,16 @@ INSERT INTO users (name) VALUES ('user3');
 -- 1:1 채팅 세션. creator / joiner 두 컬럼으로 멤버십 표현.
 -- ============================================================
 CREATE TABLE sessions (
-    id          BIGSERIAL   PRIMARY KEY,
-    creator_id  BIGINT      NOT NULL REFERENCES users(id),
-    joiner_id   BIGINT      NOT NULL REFERENCES users(id),
-    status      VARCHAR(16) NOT NULL DEFAULT 'SUSPENDED',
-    created_at  TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    ended_at    TIMESTAMP   NULL,
+    id              BIGSERIAL   PRIMARY KEY,
+    creator_id      BIGINT      NOT NULL REFERENCES users(id),
+    joiner_id       BIGINT      NOT NULL REFERENCES users(id),
+    status          VARCHAR(16) NOT NULL DEFAULT 'SUSPENDED',
+    created_at      TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ended_at        TIMESTAMP   NULL,
+    -- per-user 가시성 마커. NULL = 그 사용자에게 보임. NOT NULL = 그 사용자가 명시적으로 나감(목록에서 숨김).
+    -- 라이프사이클(status=ENDED) 과 가시성을 별개 컬럼으로 분리.
+    creator_left_at TIMESTAMP   NULL,
+    joiner_left_at  TIMESTAMP   NULL,
 
     CONSTRAINT sessions_distinct_members CHECK (creator_id <> joiner_id),
     CONSTRAINT sessions_status_valid     CHECK (status IN ('ACTIVE', 'SUSPENDED', 'ENDED'))

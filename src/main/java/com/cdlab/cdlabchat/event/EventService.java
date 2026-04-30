@@ -46,18 +46,19 @@ public class EventService {
         Session session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
 
-        if (session.isEnded()) {
-            throw new BusinessException(ErrorCode.SESSION_ENDED);
-        }
-
         if (!session.isMember(currentUser.getId())) {
             throw new BusinessException(ErrorCode.FORBIDDEN_PARTICIPANT);
         }
 
-        // 2) client-emitted 만 허용. server-emitted (DISCONNECT/RECONNECT/SESSION_ENDED) 는 별도 진입점.
+        // 2) client-emitted 만 허용. server-emitted (DISCONNECT/RECONNECT/SESSION_ENDED) 는 별도 진입점(ServerEventEmitter).
         EventType type = request.getEventType();
         if (!type.isClientEmitted()) {
             throw new BusinessException(ErrorCode.UNSUPPORTED_EVENT_TYPE);
+        }
+
+        // 종료된 세션 가드 — LEAVE 만 예외적으로 허용 (자기 가시성 정리 목적, EventType.allowedOnEndedSession 참조).
+        if (session.isEnded() && !type.allowedOnEndedSession()) {
+            throw new BusinessException(ErrorCode.SESSION_ENDED);
         }
 
         // 3) 멱등 선조회 — 이미 처리된 client_event_id 면 기존 이벤트 그대로 반환

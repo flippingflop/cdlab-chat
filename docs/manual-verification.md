@@ -134,6 +134,130 @@ curl -i -X POST http://localhost:8080/api/sessions \
   -d '{"joinerId": 1}'
 ```
 
+### 세션 목록 조회 — `GET /api/sessions`
+
+호출자에게 보이는 세션 전체. 가시성 규칙:
+
+- 멤버이면서 자신이 명시적으로 LEAVE(=`/end` 호출) 하지 않은 세션
+- ENDED 된 세션도 자신이 LEAVE 하지 않았다면 히스토리로 노출
+- 정렬: `created_at DESC`
+
+```bash
+curl -i http://localhost:8080/api/sessions \
+  -H "X-User-Id: 1"
+```
+
+기대 응답 (본문 예시):
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "creatorId": 1,
+      "joinerId": 2,
+      "status": "SUSPENDED",
+      "createdAt": "2026-04-30T...",
+      "endedAt": null
+    }
+  ]
+}
+```
+
+검증 포인트:
+
+- 위 세션 생성 직후 user1, user2 모두 동일하게 1건 노출
+- 한쪽이 `/end` 호출 후 → 호출자 목록에서는 사라지고, 상대 목록에서는 status=ENDED 로 노출
+- 양쪽 모두 `/end` 호출 후 → 양쪽 모두 목록에서 사라짐 (DB 의 row 는 보존, `creator_left_at`/`joiner_left_at` 모두 NOT NULL)
+
+### 세션 종료 — `POST /api/sessions/{sessionId}/end`
+
+호출자가 세션을 명시적으로 떠난다. 내부 동작:
+
+- LEAVE 이벤트 발행 (client-emitted, `clientEventId` 필수)
+- `sessions.{호출자쪽}_left_at = now()` 세팅
+- 첫 종료 전이일 경우에 한해 서버가 SESSION_ENDED 이벤트 추가 발행 (server-emitted, `client_event_id IS NULL`)
+
+```bash
+SESSION_ID=1
+CLIENT_EVENT_ID=$(uuidgen)
+
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/end" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{ \"clientEventId\": \"${CLIENT_EVENT_ID}\" }"
+```
+
+기대 응답 (본문 예시):
+
+```json
+{
+  "data": {
+    "sessionId": 1,
+    "status": "ENDED",
+    "endedAt": "2026-04-30T...",
+    "leftAt": "2026-04-30T..."
+  }
+}
+```
+
+검증 포인트:
+
+- HTTP 200, `status == "ENDED"`, `endedAt` / `leftAt` 채워짐
+- DB 확인:
+  - `sessions` row → `status='ENDED'`, `creator_left_at IS NOT NULL` (호출자가 user1 인 경우), `joiner_left_at IS NULL`
+  - `events` 에 row 2건 추가:
+    - `event_type='LEAVE'`, `client_event_id=${CLIENT_EVENT_ID}`, `payload={}`
+    - `event_type='SESSION_ENDED'`, `client_event_id IS NULL`, `payload` JSONB 에 `triggeredByUserId`, `reason='LEAVE'`
+- GET `/api/sessions` 호출 시 호출자(user1) 응답에서 사라짐
+- 상대(user2) 호출 시에는 같은 세션이 `status='ENDED'` 로 보임
+
+#### 멱등 — 동일 clientEventId 재시도
+
+```bash
+# 같은 CLIENT_EVENT_ID 로 재호출
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/end" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{ \"clientEventId\": \"${CLIENT_EVENT_ID}\" }"
+```
+
+검증 포인트:
+
+- HTTP 200, 응답 동일
+- DB: `events` row 수 증가 없음 (LEAVE 도 SESSION_ENDED 도 추가 안 됨)
+- `creator_left_at` / `ended_at` 시각 불변
+
+#### 두 번째 사용자가 뒤늦게 /end (이미 ENDED 상태)
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/end" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 2" \
+  -d "{ \"clientEventId\": \"$(uuidgen)\" }"
+```
+
+검증 포인트:
+
+- HTTP 200 — ENDED 세션이지만 LEAVE 는 자기 가시성 정리를 위해 예외적으로 허용됨
+- DB: `joiner_left_at` 채워짐, `events` 에 LEAVE row 1건 추가, **SESSION_ENDED 는 추가되지 않음** (라이프사이클 신호 중복 방지)
+- GET `/api/sessions` 호출 시 user2 응답에서도 사라짐 → 양쪽 모두 비어 있음
+
+#### 음성 케이스
+
+비멤버 호출 → `403 FORBIDDEN_PARTICIPANT`:
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/end" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 3" \
+  -d "{ \"clientEventId\": \"$(uuidgen)\" }"
+```
+
+존재하지 않는 세션 → `404 SESSION_NOT_FOUND`.
+
+`clientEventId` 누락 → `400 INVALID_REQUEST` (Bean Validation).
+
 ---
 
 ## event
