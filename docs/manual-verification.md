@@ -564,3 +564,99 @@ curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/messages" \
 
 종료된 세션도 **조회는 허용** 된다 (히스토리 열람 목적). write 경로(events POST) 와 의도적으로 다른 정책.
 세션 종료 API 도입 후, 세션을 종료시킨 뒤 위 조회 요청을 다시 실행하여 200 응답 + 동일한 메시지 목록이 반환되는지 확인.
+
+---
+
+## timeline
+
+### 특정 시점 세션 상태 조회 — `GET /api/sessions/{sessionId}/timeline?at={ISO8601}`
+
+events 를 fold 하여 시점 T 의 세션 상태(메시지 + 라이프사이클)를 재구성한다.
+**결정성**: 같은 (sessionId, T) 는 호출 시각과 무관하게 동일한 응답 — events 가 immutable + append-only 라 자동 보장.
+
+```bash
+SESSION_ID=1
+AT="2026-04-30T12:00:00Z"
+
+curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/timeline?at=${AT}" \
+  -H "X-User-Id: 1"
+```
+
+기대 응답 (본문 예시):
+
+```json
+{
+  "data": {
+    "sessionId": 1,
+    "at": "2026-04-30T12:00:00Z",
+    "status": "SUSPENDED",
+    "endedAt": null,
+    "endedBy": null,
+    "messages": [
+      {
+        "id": 1, "userId": 1,
+        "content": "안녕하세요",
+        "createdAt": "2026-04-30T11:00:00Z",
+        "editedAt": "2026-04-30T11:30:00Z",
+        "deletedAt": null
+      },
+      {
+        "id": 2, "userId": 2,
+        "content": "삭제된 메시지입니다.",
+        "createdAt": "2026-04-30T11:15:00Z",
+        "editedAt": null,
+        "deletedAt": "2026-04-30T11:45:00Z"
+      }
+    ]
+  }
+}
+```
+
+검증 포인트:
+
+- `at` 시점까지의 사실만 반영됨 (이후 발생 이벤트는 무시):
+  - `at` 이전에 EDIT 됐으면 그 content / editedAt 반영
+  - `at` 이전에 DELETE 됐으면 마스킹 + deletedAt 채워짐
+  - `at` 이후의 CREATE/EDIT/DELETE 는 응답에 없음
+- 라이프사이클:
+  - `at` 이전에 SESSION_ENDED 발행됐으면 `status=ENDED`, `endedAt`, `endedBy` 채워짐
+  - 아니면 `status=SUSPENDED` (초기값), endedAt/endedBy null
+- `at = NOW` 호출 시 현재 GET `/api/sessions/{id}/messages` 결과와 메시지 셋 일치
+- **결정성 검증**: 동일 `at` 으로 시간 차를 두고 두 번 호출 → 응답 100% 동일 (`messages` 순서/필드까지)
+
+#### 시나리오 — 시점 비교
+
+권장 검증 절차:
+1. 메시지 2건 생성 (T1, T2)
+2. T_mid = T2 와 다음 작업 사이의 시각 기록
+3. 메시지 1건 EDIT (T3 > T_mid)
+4. timeline(T_mid) 호출 → EDIT 미반영(원본 content), editedAt=null
+5. timeline(T3+ε) 호출 → EDIT 반영, editedAt 채워짐
+6. timeline(T_mid) 다시 호출 → 4번과 완전히 동일 응답
+
+#### 음성 케이스
+
+비멤버 호출 → `403 FORBIDDEN_PARTICIPANT`:
+
+```bash
+curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/timeline?at=${AT}" \
+  -H "X-User-Id: 3"
+```
+
+존재하지 않는 세션 → `404 SESSION_NOT_FOUND`.
+
+`at` 이 세션 생성 이전 → `400 TIMELINE_AT_BEFORE_SESSION_CREATED`:
+
+```bash
+curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/timeline?at=2000-01-01T00:00:00Z" \
+  -H "X-User-Id: 1"
+```
+
+`at` 형식 오류 (ISO-8601 아님) → `400 INVALID_TIMELINE_AT`:
+
+```bash
+curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/timeline?at=yesterday" \
+  -H "X-User-Id: 1"
+```
+
+`at` 미래 시각 → `200` (현재 상태와 동등 응답, 결정성 속성 자연스럽게 만족).

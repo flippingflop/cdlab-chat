@@ -18,7 +18,10 @@ public enum ErrorCode {
     MESSAGE_ALREADY_DELETED(HttpStatus.CONFLICT, "이미 삭제된 메시지입니다."),
     FORBIDDEN_MESSAGE_OWNER(HttpStatus.FORBIDDEN, "본인이 작성한 메시지만 수정/삭제할 수 있습니다."),
     INVALID_EVENT_PAYLOAD(HttpStatus.BAD_REQUEST, "이벤트 payload 가 올바르지 않습니다."),
-    UNSUPPORTED_EVENT_TYPE(HttpStatus.BAD_REQUEST, "지원하지 않는 이벤트 타입입니다.");
+    UNSUPPORTED_EVENT_TYPE(HttpStatus.BAD_REQUEST, "지원하지 않는 이벤트 타입입니다."),
+
+    INVALID_TIMELINE_AT(HttpStatus.BAD_REQUEST, "조회 시점(at) 형식이 올바르지 않습니다."),
+    TIMELINE_AT_BEFORE_SESSION_CREATED(HttpStatus.BAD_REQUEST, "세션 생성 이전 시점은 조회할 수 없습니다.");
 
     private final HttpStatus httpStatus;
     private final String message;
