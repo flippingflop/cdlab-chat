@@ -248,3 +248,193 @@ curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
     \"payload\": {}
   }"
 ```
+
+### MESSAGE_EDITED — `POST /api/sessions/{sessionId}/events`
+
+위에서 생성한 메시지(`MESSAGE_ID`) 의 본문을 수정한다.
+payload 는 `{ "messageId": ..., "content": ... }`.
+
+```bash
+SESSION_ID=1
+MESSAGE_ID=1
+
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{
+    \"eventType\": \"MESSAGE_EDITED\",
+    \"clientEventId\": \"$(uuidgen)\",
+    \"payload\": { \"messageId\": ${MESSAGE_ID}, \"content\": \"수정된 내용\" }
+  }"
+```
+
+검증 포인트:
+
+- HTTP 200, 응답 `data.payload.messageId == MESSAGE_ID`, `data.payload.content == "수정된 내용"`
+- DB 확인:
+  - `events` 에 row 추가 (eventType=`MESSAGE_EDITED`)
+  - `messages` 의 해당 row 가 **UPDATE** 됨 → `content == "수정된 내용"`, `edited_at IS NOT NULL`, `id`/`created_at` 불변
+
+#### 음성 케이스
+
+존재하지 않는 messageId → `404 MESSAGE_NOT_FOUND`:
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{
+    \"eventType\": \"MESSAGE_EDITED\",
+    \"clientEventId\": \"$(uuidgen)\",
+    \"payload\": { \"messageId\": 9999, \"content\": \"x\" }
+  }"
+```
+
+타인이 작성한 메시지 수정 시도 → `403 FORBIDDEN_MESSAGE_OWNER`
+(`MESSAGE_ID` 는 user1 이 작성한 메시지라고 가정):
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 2" \
+  -d "{
+    \"eventType\": \"MESSAGE_EDITED\",
+    \"clientEventId\": \"$(uuidgen)\",
+    \"payload\": { \"messageId\": ${MESSAGE_ID}, \"content\": \"x\" }
+  }"
+```
+
+다른 세션의 messageId → `404 MESSAGE_NOT_FOUND`
+(존재 노출 회피 차원에서 FORBIDDEN 이 아닌 NOT_FOUND 로 응답).
+
+빈 content → `400 INVALID_EVENT_PAYLOAD`:
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{
+    \"eventType\": \"MESSAGE_EDITED\",
+    \"clientEventId\": \"$(uuidgen)\",
+    \"payload\": { \"messageId\": ${MESSAGE_ID}, \"content\": \"   \" }
+  }"
+```
+
+이미 삭제된 메시지에 대한 EDIT → `409 MESSAGE_ALREADY_DELETED` (DELETE 검증 후 재시도하여 확인).
+
+### MESSAGE_DELETED — `POST /api/sessions/{sessionId}/events`
+
+메시지를 soft delete 한다. payload 는 `{ "messageId": ... }`.
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{
+    \"eventType\": \"MESSAGE_DELETED\",
+    \"clientEventId\": \"$(uuidgen)\",
+    \"payload\": { \"messageId\": ${MESSAGE_ID} }
+  }"
+```
+
+검증 포인트:
+
+- HTTP 200, 응답 `data.payload.messageId == MESSAGE_ID`
+- DB 확인:
+  - `events` 에 row 추가 (eventType=`MESSAGE_DELETED`)
+  - `messages` 의 해당 row 는 **soft delete** → `deleted_at IS NOT NULL`, `content` 는 원본 그대로 (응답 마스킹은 조회 API 책임)
+
+#### 멱등 — 동일 clientEventId 재시도
+
+같은 `clientEventId` 로 재호출 시 응답이 첫 호출과 동일하고 `events` row 가 늘지 않는다 (MESSAGE_CREATED 멱등 검증과 동일 패턴).
+
+#### 멱등 — 다른 clientEventId 로 재삭제
+
+이미 삭제된 메시지에 **다른** `clientEventId` 로 다시 DELETE 요청.
+
+```bash
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{
+    \"eventType\": \"MESSAGE_DELETED\",
+    \"clientEventId\": \"$(uuidgen)\",
+    \"payload\": { \"messageId\": ${MESSAGE_ID} }
+  }"
+```
+
+검증 포인트:
+
+- HTTP 200 — 도메인 `softDelete()` 가 no-op 으로 처리
+- DB 확인:
+  - `events` 에는 row 가 **추가** 됨 (멱등 단위는 `client_event_id`)
+  - `messages.deleted_at` 는 처음 삭제 시각에서 **변경되지 않음**
+
+#### 음성 케이스
+
+존재하지 않는 messageId → `404 MESSAGE_NOT_FOUND`.
+
+타인 메시지 삭제 시도 → `403 FORBIDDEN_MESSAGE_OWNER`.
+
+다른 세션의 messageId → `404 MESSAGE_NOT_FOUND`.
+
+---
+
+## message
+
+### 세션 메시지 조회 — `GET /api/sessions/{sessionId}/messages`
+
+세션 멤버가 해당 세션의 메시지를 `created_at` 오름차순으로 전체 조회한다.
+페이징은 미도입 (1:1 채팅 + 과제 스펙 외).
+
+```bash
+curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/messages" \
+  -H "X-User-Id: 1"
+```
+
+기대 응답 (본문 예시):
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "sessionId": 1,
+      "userId": 1,
+      "content": "삭제된 메시지입니다.",
+      "createdAt": "2026-04-29T...",
+      "editedAt": "2026-04-29T...",
+      "deletedAt": "2026-04-29T..."
+    }
+  ]
+}
+```
+
+검증 포인트:
+
+- 정렬: `createdAt` 오름차순
+- **편집된 메시지**: `content` 는 최신 본문, `editedAt` 채워짐 (UPDATE-on-edit 정책)
+- **삭제된 메시지**: `content` 는 placeholder `"삭제된 메시지입니다."` 로 마스킹, `deletedAt` 채워짐
+  (도메인 entity 의 원문 content 는 보존되며, 마스킹은 응답 DTO 단계에서만 적용됨 — `SELECT content FROM messages` 로 원문 확인 가능)
+- 양쪽 사용자 모두 동일한 응답을 받음 (creator/joiner 구분 없음)
+
+#### 음성 케이스
+
+존재하지 않는 세션 → `404 SESSION_NOT_FOUND`:
+
+```bash
+curl -i "http://localhost:8080/api/sessions/9999/messages" \
+  -H "X-User-Id: 1"
+```
+
+세션 멤버가 아닌 사용자 → `403 FORBIDDEN_PARTICIPANT`:
+
+```bash
+curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/messages" \
+  -H "X-User-Id: 3"
+```
+
+#### 종료된 세션 조회
+
+종료된 세션도 **조회는 허용** 된다 (히스토리 열람 목적). write 경로(events POST) 와 의도적으로 다른 정책.
+세션 종료 API 도입 후, 세션을 종료시킨 뒤 위 조회 요청을 다시 실행하여 200 응답 + 동일한 메시지 목록이 반환되는지 확인.
