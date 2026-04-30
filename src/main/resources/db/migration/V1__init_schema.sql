@@ -9,6 +9,8 @@ CREATE TABLE users (
 
 INSERT INTO users (name) VALUES ('user1');
 INSERT INTO users (name) VALUES ('user2');
+-- user3: 수동 검증 시 "세션 비멤버" 음성 케이스(403 FORBIDDEN_PARTICIPANT) 재현용 시드.
+INSERT INTO users (name) VALUES ('user3');
 
 -- ============================================================
 -- sessions

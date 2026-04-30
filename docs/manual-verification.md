@@ -51,10 +51,11 @@ Content-Length: 1
 `/api/health` 외 모든 엔드포인트는 `X-User-Id` 헤더로 mock 인증된다.
 초기 시드 사용자 (V1__init_schema.sql):
 
-| id | name |
-|----|------|
-| 1  | user1 |
-| 2  | user2 |
+| id | name  | 용도                                               |
+|----|-------|----------------------------------------------------|
+| 1  | user1 | 세션 creator                                       |
+| 2  | user2 | 세션 joiner                                        |
+| 3  | user3 | 비멤버 (FORBIDDEN_PARTICIPANT 음성 케이스 재현용) |
 
 이하 예시는 user1(creator) ↔ user2(joiner) 1:1 세션을 가정한다.
 
@@ -224,7 +225,7 @@ curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
 ```
 
 세션 멤버가 아닌 사용자 → `403 FORBIDDEN_PARTICIPANT`
-(creator=1, joiner=2 인 세션에 임의 user id 3 으로 호출. 단, 3번 사용자 시드를 추가했거나 별도 사용자 등록이 선행되어야 함):
+(creator=1, joiner=2 인 세션에 비멤버 user3 으로 호출):
 
 ```bash
 curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
