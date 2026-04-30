@@ -5,6 +5,7 @@ import com.cdlab.cdlabchat.event.EventHandler;
 import com.cdlab.cdlabchat.event.EventRepository;
 import com.cdlab.cdlabchat.event.EventType;
 import com.cdlab.cdlabchat.event.ServerEventEmitter;
+import com.cdlab.cdlabchat.session.MockSessionManager;
 import com.cdlab.cdlabchat.session.Session;
 import com.cdlab.cdlabchat.user.User;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ public class LeaveHandler implements EventHandler {
 
     private final EventRepository eventRepository;
     private final ServerEventEmitter serverEventEmitter;
+    private final MockSessionManager mockSessionManager;
 
     @Override
     public EventType supports() {
@@ -54,12 +56,15 @@ public class LeaveHandler implements EventHandler {
 
         // 4) LEAVE 로 인해 막 ENDED 로 전이된 경우에만 SESSION_ENDED 를 server-emit.
         //    이미 ENDED 였던 세션에 두 번째 LEAVE 가 들어온 경우엔 재발행하지 않음 (라이프사이클 신호 중복 방지).
+        //    SESSION_ENDED 발행과 함께 presence(MockSessionManager) bucket 을 정리해
+        //    "끝난 세션엔 누구도 online 아님" invariant 를 보장한다.
         if (!wasEndedBefore && session.isEnded()) {
             Map<String, Object> sessionEndedPayload = Map.of(
                     "triggeredByUserId", currentUser.getId(),
                     "reason", "LEAVE"
             );
             serverEventEmitter.emit(session, currentUser, EventType.SESSION_ENDED, sessionEndedPayload);
+            mockSessionManager.clearSession(session.getId());
         }
 
         return leaveEvent;
