@@ -180,8 +180,9 @@ curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
 
 검증 포인트:
 
-- `data.messageId` 가 응답 최상위 필드로 채워짐
-- `data.payload` 안에도 `messageId` 가 enrich 되어 있음 (server-enriched payload)
+- `data.messageId` 가 `data` 직속 필드(=`payload` 와 동렬, payload 외부)로 채워짐
+  — 클라이언트가 payload 스키마를 모르고도 후속 EDIT/DELETE 에 바로 사용할 수 있도록 평탄화
+- `data.payload.messageId` 도 동일 값으로 enrich 되어 있음 (events 테이블에 저장되는 server-enriched payload)
 - DB 확인:
   - `SELECT * FROM events;` → row 1건, `payload` JSONB 에 `content` 와 `messageId` 둘 다 존재
   - `SELECT * FROM messages;` → row 1건, `content == '안녕하세요'`, `deleted_at IS NULL`, `edited_at IS NULL`
