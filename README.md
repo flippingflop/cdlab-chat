@@ -8,7 +8,7 @@
 - **주요 의사결정 요약**: [docs/design-decision.md](docs/design-decision.md)
 - **API 명세**: TBD — 현재는 [docs/manual-verification.md](docs/manual-verification.md) 의 curl 예시 + 응답 형태가 부분 대체. OpenAPI 설정 예정
 - **ERD + 핵심 DDL**: [src/main/resources/db/migration/V1__init_schema.sql](src/main/resources/db/migration/V1__init_schema.sql)
-- **주요 쿼리 + 인덱스 근거 + 병목 설명**: TBD
+- **주요 쿼리 + 인덱스 근거 + 병목 설명**: [docs/db-design.md](docs/db-design.md)
 - **설계 문서** (재연결 / 중복 처리 / 확장성 / 관측 / 장애 대응): [docs/design-doc.md](docs/design-doc.md)
 - **이벤트 기반 상태 복원**: [docs/event-replay.md](docs/event-replay.md) — 리플레이 전략 / 중복 및 순서 정합성 / 복원 비용 등. timeline API 구현 자체는 `GET /api/sessions/{id}/timeline?at=...`
 
