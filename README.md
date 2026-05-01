@@ -10,7 +10,7 @@
 - **ERD + 핵심 DDL**: [src/main/resources/db/migration/V1__init_schema.sql](src/main/resources/db/migration/V1__init_schema.sql)
 - **주요 쿼리 + 인덱스 근거 + 병목 설명**: TBD
 - **설계 문서** (재연결 / 중복 처리 / 확장성 / 관측 / 장애 대응): [docs/design-doc.md](docs/design-doc.md)
-- **이벤트 기반 상태 복원**: timeline API 구현 (`GET /api/sessions/{id}/timeline?at=...`)
+- **이벤트 기반 상태 복원**: [docs/event-replay.md](docs/event-replay.md) — 리플레이 전략 / 중복 및 순서 정합성 / 복원 비용 등. timeline API 구현 자체는 `GET /api/sessions/{id}/timeline?at=...`
 
 ---
 
