@@ -1,5 +1,19 @@
 # cdlab-chat
 
+## 산출물 — 과제 필수 제출물 매핑
+
+각 항목은 한 줄씩 placeholder 로 두며, 작성/링크가 진행되면 채워집니다.
+
+- **실행 방법 / 환경 구성**: 본 README 의 아래 절들 (동작 검증 / PostgreSQL 재시작·초기화)
+- **주요 의사결정 요약**: [docs/design-decision.md](docs/design-decision.md)
+- **API 명세**: TBD — 현재는 [docs/manual-verification.md](docs/manual-verification.md) 의 curl 예시 + 응답 형태가 부분 대체. OpenAPI 설정 예정
+- **ERD + 핵심 DDL**: [src/main/resources/db/migration/V1__init_schema.sql](src/main/resources/db/migration/V1__init_schema.sql)
+- **주요 쿼리 + 인덱스 근거 + 병목 설명**: TBD
+- **설계 문서** (재연결 / 중복 처리 / 확장성 / 관측 / 장애 대응): [docs/design-doc.md](docs/design-doc.md)
+- **이벤트 기반 상태 복원**: timeline API 구현 (`GET /api/sessions/{id}/timeline?at=...`)
+
+---
+
 ## 동작 검증
 
 수동 테스트 절차: [docs/manual-verification.md](docs/manual-verification.md)
