@@ -89,3 +89,58 @@ events.payload 컬럼 타입으로 jsonb 를 채택했습니다.
 이에 따른 모니터링 관련 내용은 event-replay.md 문서에서 정리되어 있습니다.
 
 ---
+
+## 6. 주요 쿼리 + 인덱스 + 병목
+
+본 프로젝트의 쿼리 두 개를 선정해서 정리합니다.
+
+### 6.1 시점 타임라인 fold (이벤트 테이블)
+
+```sql
+SELECT *
+FROM events
+WHERE session_id = ? AND created_at <= ?
+ORDER BY created_at ASC;
+```
+
+- 호출 위치: `EventRepository.findBySessionIdAndCreatedAtLessThanEqualOrderByCreatedAtAsc`.
+  - `SessionTimelineService.timeline` 의 fold 입력으로 사용됩니다.
+- 인덱스: `idx_events_session_created (session_id, created_at)`
+  - session_id 컬럼 인덱스를 우선 이용하고, created_at 컬럼이 created_at 정렬을 처리합니다.
+  - where 와 order 가 같은 인덱스로 모두 커버됩니다.
+
+병목:
+
+- 세션 1개의 누적 events 수에 선형 비용입니다. 매우 길어진 세션에서 fold 비용이 응답 시간에 잡히기 시작합니다.
+
+개선 방향:
+
+- 스냅샷을 도입하여 fold 시작점을 단축하는 방법이 있습니다. 자세한 trade-off 와 도입 트리거는 event-replay.md 파일에 정리되어 있습니다.
+
+### 6.2 사용자에게 보이는 세션 목록 (세션 테이블)
+
+```sql
+SELECT *
+FROM sessions
+WHERE (creator_id = ? AND creator_left_at IS NULL)
+   OR (joiner_id  = ? AND joiner_left_at  IS NULL)
+ORDER BY created_at DESC;
+```
+
+- 호출 위치: `SessionRepository.findVisibleByUserOrderByCreatedAtDesc`.
+  - `SessionService.list` 가 사용합니다.
+- 인덱스: `idx_sessions_creator (creator_id)` + `idx_sessions_joiner (joiner_id)`
+  - or 의 양쪽 분기를 각각의 단일 인덱스가 커버합니다.
+  - `left_at IS NULL` 필터는 인덱스 단계가 아니라 row 단계에서 적용됩니다.
+
+병목:
+
+- order by created_at desc 는 위 인덱스로 직접 커버되지 않습니다. 분리된 정렬 비용이 발생합니다.
+- 사용자별 세션 수가 많아지면 정렬 비용 + 응답 페이로드가 누적됩니다.
+
+개선 방향:
+
+- created_at 커서를 활용한 페이지네이션을 도입할 수 있습니다.
+- 카카오톡처럼 최근 채팅을 상단에 배치하려면 last_updated_at 컬럼을 추가하여 인덱스 목적으로 사용할 수 있습니다.
+
+---
