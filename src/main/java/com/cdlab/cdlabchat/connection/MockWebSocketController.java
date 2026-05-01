@@ -4,8 +4,10 @@ import com.cdlab.cdlabchat.common.auth.CurrentUser;
 import com.cdlab.cdlabchat.common.response.ApiResponse;
 import com.cdlab.cdlabchat.connection.dto.ConnectResponse;
 import com.cdlab.cdlabchat.connection.dto.DisconnectResponse;
+import com.cdlab.cdlabchat.connection.dto.PresenceResponse;
 import com.cdlab.cdlabchat.user.User;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -47,5 +49,13 @@ public class MockWebSocketController {
             @PathVariable Long sessionId
     ) {
         return ApiResponse.of(connectionService.disconnect(sessionId, currentUser));
+    }
+
+    @GetMapping("/{sessionId}/presence")
+    public ApiResponse<PresenceResponse> presence(
+            @CurrentUser User currentUser,
+            @PathVariable Long sessionId
+    ) {
+        return ApiResponse.of(connectionService.getPresence(sessionId, currentUser));
     }
 }

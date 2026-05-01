@@ -4,6 +4,7 @@ import com.cdlab.cdlabchat.common.exception.BusinessException;
 import com.cdlab.cdlabchat.common.exception.ErrorCode;
 import com.cdlab.cdlabchat.connection.dto.ConnectResponse;
 import com.cdlab.cdlabchat.connection.dto.DisconnectResponse;
+import com.cdlab.cdlabchat.connection.dto.PresenceResponse;
 import com.cdlab.cdlabchat.event.Event;
 import com.cdlab.cdlabchat.event.EventRepository;
 import com.cdlab.cdlabchat.event.EventType;
@@ -15,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Map;
 
 /**
@@ -79,6 +81,32 @@ public class ConnectionService {
         mockSessionManager.disconnect(sessionId, currentUser.getId());
 
         return DisconnectResponse.of(emitted);
+    }
+
+    @Transactional(readOnly = true)
+    public PresenceResponse getPresence(Long sessionId, User currentUser) {
+        // 1) 세션/멤버 가드. ENDED 는 허용 — read 는 항상 허용 정책 (timeline/messages/list 와 일관).
+        //    "끝난 세션엔 누구도 online 아님" invariant 가 응답으로 직접 관찰되도록 함.
+        Session session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.SESSION_NOT_FOUND));
+        if (!session.isMember(currentUser.getId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_PARTICIPANT);
+        }
+
+        // 2) in-memory presence 두 user 분 조회.
+        //    ENDED 세션은 LeaveHandler 의 clearSession 효과로 bucket 이 제거돼 둘 다 false 자연 반환.
+        boolean creatorOnline = mockSessionManager.isOnline(sessionId, session.getCreatorId());
+        boolean joinerOnline = mockSessionManager.isOnline(sessionId, session.getJoinerId());
+
+        // 3) 응답 — queriedAt 으로 호출 시점 스냅샷임을 명시 (휘발성/캐시 부적합 신호).
+        return new PresenceResponse(
+                session.getId(),
+                session.getCreatorId(),
+                session.getJoinerId(),
+                creatorOnline,
+                joinerOnline,
+                Instant.now()
+        );
     }
 
     private Session loadAndGuard(Long sessionId, User currentUser) {

@@ -404,7 +404,85 @@ curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/connect" \
 검증 포인트:
 
 - HTTP 409, errorCode `SESSION_ENDED`
-- "끝난 세션엔 누구도 online 아님" invariant 와 일관 — `LeaveHandler` 의 `clearSession` 으로 in-memory presence 도 동시 정리됨 (외부 관찰은 presence 부착 단계 이후)
+- "끝난 세션엔 누구도 online 아님" invariant 와 일관 — `LeaveHandler` 의 `clearSession` 으로 in-memory presence 도 동시 정리됨 (presence 조회로 직접 관찰 가능, 아래 `presence` 절 참조)
+
+### presence 조회 — `GET /api/sessions/{sessionId}/presence`
+
+세션 멤버가 해당 세션의 양 사용자 online 상태를 조회한다. `MockSessionManager` 의 in-memory 스냅샷을 그대로 노출 — 휘발성, 캐시 부적합.
+
+세션 정보 응답(`/api/sessions`) 과 별도 endpoint 로 분리 — presence 는 도메인 라이프사이클이 아닌 connection lifetime(WebSocket 시뮬레이션) 정보이며, 응답을 섞으면 책임이 흐려져 평가 시점의 설명 단위가 어긋남.
+
+```bash
+SESSION_ID=1
+
+curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/presence" \
+  -H "X-User-Id: 1"
+```
+
+기대 응답 (본문 예시):
+
+```json
+{
+  "data": {
+    "sessionId": 1,
+    "creatorId": 1,
+    "joinerId": 2,
+    "creatorOnline": true,
+    "joinerOnline": false,
+    "queriedAt": "2026-04-30T..."
+  }
+}
+```
+
+검증 포인트:
+
+- `creatorOnline` / `joinerOnline` 이 직전 connect/disconnect 결과와 일치
+- `queriedAt` 은 호출 시각 — 같은 상태에서도 호출마다 갱신됨 (스냅샷 신호)
+- DB 호출 없음 — in-memory 조회만 (Hibernate SQL 로깅에 SELECT 1건만 보임: `findById`)
+
+#### 시나리오 — 양쪽 connect/disconnect 추적
+
+권장 검증 절차:
+
+1. 세션 생성 직후 `presence` 호출 → `creatorOnline=false, joinerOnline=false` (아직 connect 호출 X)
+2. user1 connect → presence: `creatorOnline=true, joinerOnline=false`
+3. user2 connect → presence: `creatorOnline=true, joinerOnline=true`
+4. user1 disconnect → presence: `creatorOnline=false, joinerOnline=true`
+5. user1 connect (RECONNECT) → presence: `creatorOnline=true, joinerOnline=true`
+
+#### ENDED 세션 — `clearSession` invariant 직접 관찰
+
+read 는 ENDED 세션도 허용 (timeline/messages/list 와 일관). `clearSession` 효과로 두 값 모두 false 로 자연 반환.
+
+```bash
+# 1) user1, user2 모두 connect → presence 둘 다 true 확인
+# 2) user1 이 /end 호출 → SESSION_ENDED server-emit + clearSession
+curl -i -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/end" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{ \"clientEventId\": \"$(uuidgen)\" }"
+
+# 3) presence 조회 — 200, 둘 다 false
+curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/presence" \
+  -H "X-User-Id: 2"
+```
+
+검증 포인트:
+
+- HTTP 200 (read 는 ENDED 허용)
+- `creatorOnline=false`, `joinerOnline=false` — `clearSession` 으로 bucket 이 제거됐기 때문
+- "끝난 세션엔 누구도 online 아님" invariant 가 응답으로 직접 관찰됨
+
+#### 음성 케이스
+
+비멤버 호출 → `403 FORBIDDEN_PARTICIPANT`:
+
+```bash
+curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/presence" \
+  -H "X-User-Id: 3"
+```
+
+존재하지 않는 세션 → `404 SESSION_NOT_FOUND`.
 
 ---
 
