@@ -7,6 +7,8 @@
 - ✍️: 직접 작성한 문서
 - 🤖: ai로 작성한 문서
 
+---
+
 - **실행 방법 / 환경 구성**: 본 README 의 아래 절들 (동작 검증 / PostgreSQL 재시작·초기화) 🤖
 - **주요 의사결정 요약**: [docs/design-decision.md](docs/design-decision.md) ✍️
 - **API 명세**: swagger ui — `http://localhost:8080/swagger-ui.html` (아래 "API 문서" 절 참조). 수동 검증 시퀀스는 [docs/manual-verification.md](docs/manual-verification.md) 🤖
