@@ -14,6 +14,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 import java.io.IOException;
+import java.util.List;
 
 @Component
 public class UserAuthenticationFilter extends OncePerRequestFilter {
@@ -21,6 +22,10 @@ public class UserAuthenticationFilter extends OncePerRequestFilter {
     public static final String CURRENT_USER_ATTR = "currentUser";
     private static final String USER_ID_HEADER = "X-User-Id";
     private static final String HEALTH_PATH = "/api/health";
+    private static final List<String> DOC_PATH_PREFIXES = List.of(
+            "/swagger-ui",
+            "/v3/api-docs"
+    );
 
     private final UserService userService;
     private final HandlerExceptionResolver exceptionResolver;
@@ -34,7 +39,9 @@ public class UserAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return HEALTH_PATH.equals(request.getRequestURI());
+        String uri = request.getRequestURI();
+        if (HEALTH_PATH.equals(uri)) return true;
+        return DOC_PATH_PREFIXES.stream().anyMatch(uri::startsWith);
     }
 
     @Override
