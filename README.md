@@ -9,7 +9,7 @@
 
 - **실행 방법 / 환경 구성**: 본 README 의 아래 절들 (동작 검증 / PostgreSQL 재시작·초기화) 🤖
 - **주요 의사결정 요약**: [docs/design-decision.md](docs/design-decision.md) ✍️
-- **API 명세**: TBD — 현재는 [docs/manual-verification.md](docs/manual-verification.md) 의 curl 예시 + 응답 형태가 부분 대체. OpenAPI 설정 예정 🤖
+- **API 명세**: swagger ui — `http://localhost:8080/swagger-ui.html` (아래 "API 문서" 절 참조). 수동 검증 시퀀스는 [docs/manual-verification.md](docs/manual-verification.md) 🤖
 - **ERD + 핵심 DDL**: [src/main/resources/db/migration/V1__init_schema.sql](src/main/resources/db/migration/V1__init_schema.sql) 🤖
 - **주요 쿼리 + 인덱스 근거 + 병목 설명**: [docs/db-design.md](docs/db-design.md) ✍️
 - **설계 문서** (재연결 / 중복 처리 / 확장성 / 관측 / 장애 대응): [docs/design-doc.md](docs/design-doc.md) ✍️
@@ -20,6 +20,15 @@
 ## 동작 검증
 
 수동 테스트 절차: [docs/manual-verification.md](docs/manual-verification.md)
+
+## API 문서 (Swagger UI)
+
+스프링부트 기동 후 다음 주소에서 확인 가능합니다.
+
+- swagger ui: http://localhost:8080/swagger-ui.html
+- openapi 스펙 (json): http://localhost:8080/v3/api-docs
+
+`X-User-Id` 헤더 인증은 위 경로를 우회하도록 `UserAuthenticationFilter.shouldNotFilter` 에 화이트리스트로 처리하였습니다.
 
 ## PostgreSQL 재시작 / 초기화
 
