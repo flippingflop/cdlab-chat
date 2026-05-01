@@ -50,8 +50,10 @@ public class SessionTimelineService {
         List<Event> events = eventRepository
                 .findBySessionIdAndCreatedAtLessThanEqualOrderByCreatedAtAsc(sessionId, at);
 
-        // 4) fold → DTO
+        // 4) fold → DTO. creator/joiner ID 는 LEAVE fold 결과를 응답의 두 leftAt 필드로 평탄화하기 위해 전달.
+        //    folder 는 events 만 알고 도메인 Session 을 모르므로, 매핑 책임은 여기서.
         SessionTimelineFolder.TimelineState state = SessionTimelineFolder.fold(events);
-        return SessionTimelineResponse.from(sessionId, at, state);
+        return SessionTimelineResponse.from(
+                sessionId, at, state, session.getCreatorId(), session.getJoinerId());
     }
 }

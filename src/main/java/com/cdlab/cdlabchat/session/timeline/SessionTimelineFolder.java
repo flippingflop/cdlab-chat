@@ -4,6 +4,7 @@ import com.cdlab.cdlabchat.event.Event;
 import com.cdlab.cdlabchat.session.SessionStatus;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,9 +32,10 @@ public final class SessionTimelineFolder {
                 case MESSAGE_CREATED -> applyCreated(e, messages);
                 case MESSAGE_EDITED  -> applyEdited(e, messages);
                 case MESSAGE_DELETED -> applyDeleted(e, messages);
+                case LEAVE           -> applyLeave(e, lifecycle);
                 case SESSION_ENDED   -> applyEnded(e, lifecycle);
-                // LEAVE/JOIN/DISCONNECT/RECONNECT — 1:1 timeline 모델에서는 무시
-                // (LEAVE 의 라이프사이클 효과는 SESSION_ENDED 가 대표)
+                // JOIN/RECONNECT/DISCONNECT — connection lifetime(WebSocket 시뮬레이션) 의 휘발 정보.
+                // 도메인 방 멤버십 fold 와 무관하므로 timeline 에서는 무시.
                 default -> { }
             }
         }
@@ -63,6 +65,11 @@ public final class SessionTimelineFolder {
         if (ms.deletedAt == null) {
             ms.deletedAt = e.getCreatedAt();
         }
+    }
+
+    private static void applyLeave(Event e, Lifecycle lifecycle) {
+        // 같은 user 의 두 번째 LEAVE 는 첫 시각 유지 — 도메인 Session.leave() 의 left_at 보존 정책과 일관.
+        lifecycle.leftAtByUserId.putIfAbsent(e.getUserId(), e.getCreatedAt());
     }
 
     private static void applyEnded(Event e, Lifecycle lifecycle) {
@@ -114,5 +121,8 @@ public final class SessionTimelineFolder {
         public SessionStatus status = SessionStatus.SUSPENDED; // 초기값
         public Instant endedAt;
         public Long endedBy;
+        // 시점 t 까지 LEAVE 한 user 들의 leftAt. 1:1 채팅이라 최대 2개 entry.
+        // creator/joiner 매핑은 호출자(Service/DTO) 가 Session 도메인과 결합해서 처리 — folder 는 events 만 알면 충분.
+        public final Map<Long, Instant> leftAtByUserId = new HashMap<>();
     }
 }

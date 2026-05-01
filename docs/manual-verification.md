@@ -797,8 +797,12 @@ curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/messages" \
 
 ### 특정 시점 세션 상태 조회 — `GET /api/sessions/{sessionId}/timeline?at={ISO8601}`
 
-events 를 fold 하여 시점 T 의 세션 상태(메시지 + 라이프사이클)를 재구성한다.
+events 를 fold 하여 시점 T 의 세션 상태(메시지 + 라이프사이클 + 도메인 멤버십)를 재구성한다.
 **결정성**: 같은 (sessionId, T) 는 호출 시각과 무관하게 동일한 응답 — events 가 immutable + append-only 라 자동 보장.
+
+도메인 멤버십 (`creatorLeftAt` / `joinerLeftAt`) 은 events 의 LEAVE row fold 결과 — connection presence (`/presence`, MockSessionManager) 와는 별개의 개념. presence 는 WebSocket 연결 휘발 상태, 멤버십은 LEAVE 도메인 행동의 영속 상태이다.
+
+본 프로젝트의 JOIN 이벤트는 WebSocket 첫 connect 의미이며 방 입장과 무관 — 1:1 채팅의 방 입장은 세션 생성 자체이므로 timeline 멤버십 fold 는 LEAVE 만 본다.
 
 ```bash
 SESSION_ID=1
@@ -818,6 +822,8 @@ curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/timeline?at=${AT}" \
     "status": "SUSPENDED",
     "endedAt": null,
     "endedBy": null,
+    "creatorLeftAt": null,
+    "joinerLeftAt": null,
     "messages": [
       {
         "id": 1, "userId": 1,
@@ -847,8 +853,12 @@ curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/timeline?at=${AT}" \
 - 라이프사이클:
   - `at` 이전에 SESSION_ENDED 발행됐으면 `status=ENDED`, `endedAt`, `endedBy` 채워짐
   - 아니면 `status=SUSPENDED` (초기값), endedAt/endedBy null
+- 도메인 멤버십 (LEAVE fold 결과):
+  - `at` 이전에 creator 가 `/end` 호출했으면 `creatorLeftAt` 채워짐, 아니면 null
+  - `joinerLeftAt` 도 동일
+  - 두 필드는 다른 시각이 될 수 있음 — 한쪽이 먼저 LEAVE 한 후 상대가 뒤늦게 LEAVE 한 경우 시점 t 에 따라 한쪽만 채워질 수 있음
 - `at = NOW` 호출 시 현재 GET `/api/sessions/{id}/messages` 결과와 메시지 셋 일치
-- **결정성 검증**: 동일 `at` 으로 시간 차를 두고 두 번 호출 → 응답 100% 동일 (`messages` 순서/필드까지)
+- **결정성 검증**: 동일 `at` 으로 시간 차를 두고 두 번 호출 → 응답 100% 동일 (`messages` 순서/필드 + leftAt 들까지)
 
 #### 시나리오 — 시점 비교
 
@@ -859,6 +869,23 @@ curl -i "http://localhost:8080/api/sessions/${SESSION_ID}/timeline?at=${AT}" \
 4. timeline(T_mid) 호출 → EDIT 미반영(원본 content), editedAt=null
 5. timeline(T3+ε) 호출 → EDIT 반영, editedAt 채워짐
 6. timeline(T_mid) 다시 호출 → 4번과 완전히 동일 응답
+
+#### 시나리오 — 멤버십 fold (LEAVE)
+
+권장 검증 절차:
+1. 메시지 1건 생성 (T1)
+2. user1 이 `/end` 호출 (T2) — LEAVE + SESSION_ENDED
+3. timeline(T1+ε) 호출 → `creatorLeftAt=null`, `joinerLeftAt=null`, `status=SUSPENDED` (LEAVE 이전 시점)
+4. timeline(T2+ε) 호출 → `creatorLeftAt=T2`, `joinerLeftAt=null`, `status=ENDED`, `endedAt=T2`, `endedBy=1`
+5. user2 가 뒤늦게 `/end` 호출 (T3 > T2)
+6. timeline(T3+ε) 호출 → `creatorLeftAt=T2`, `joinerLeftAt=T3` (양쪽 다 채워짐), `endedAt=T2` (라이프사이클은 첫 전이 시각 그대로)
+
+검증 포인트:
+
+- T1 시점에는 두 leftAt 모두 null (events 의 LEAVE row 가 아직 없음)
+- T2 시점에는 user1 의 leftAt 만 채워짐 — fold 가 user_id 별로 LEAVE 를 분리해 매핑함
+- 두 번째 LEAVE 가 뒤늦게 들어와도 첫 LEAVE 의 시각이 보존됨 (folder 의 `putIfAbsent` 정책, 도메인 `Session.leave()` 와 일관)
+- `endedAt` 은 첫 LEAVE 가 만든 SESSION_ENDED 의 createdAt — `joinerLeftAt` 시각보다 먼저인 게 정상
 
 #### 음성 케이스
 
