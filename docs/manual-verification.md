@@ -1,7 +1,11 @@
 # 수동 테스트 방법
 
-본 문서는 cdlab-chat 의 동작을 수동으로 검증하는 절차를 도메인별로 정리한다.
-도메인이 늘어나면 섹션을 아래로 추가한다.
+본 문서는 cdlab-chat 의 동작을 수동으로 검증하는 절차를 두 가지 구조로 제공한다.
+
+- **smoke test 시나리오** (`## smoke test 시나리오`): 전 도메인 happy-path 를 한 흐름으로 굴려보기 위한 절차. 위에서 아래로 그대로 실행 가능.
+- **도메인별 reference** (`## session` 이하): 도메인 단위로 정상/음성/멱등 케이스를 모두 정리. 특정 케이스만 격리해서 검증할 때 참조.
+
+도메인이 늘어나면 reference 섹션을 아래로 추가한다.
 
 ## 사전 조건
 
@@ -58,6 +62,250 @@ Content-Length: 1
 | 3  | user3 | 비멤버 (FORBIDDEN_PARTICIPANT 음성 케이스 재현용) |
 
 이하 예시는 user1(creator) ↔ user2(joiner) 1:1 세션을 가정한다.
+
+---
+
+## smoke test 시나리오
+
+전 도메인 happy-path 를 하나의 흐름으로 검증한다. 음성 케이스 / 멱등 / 비교 시나리오는 각 도메인 reference 절 참조.
+
+### 사전 준비
+
+DB 가 깨끗한 상태에서 시작하기를 권장한다 (이전 잔재가 있으면 응답 ID 가 1 부터 시작하지 않을 뿐, 흐름은 동일하게 동작).
+
+(선택) DB 초기화 — Flyway 가 스키마/시드 재적용하므로 bootRun 도 재시작:
+
+```bash
+docker compose down -v && docker compose up -d
+./gradlew bootRun
+```
+
+(`./gradlew bootRun` 은 별도 셸에서 기동)
+
+응답 JSON 에서 ID 추출용 `jq` 설치:
+
+```bash
+which jq || brew install jq
+```
+
+이후 명령은 한 셸에서 위에서 아래로 순차 실행 (셸 변수가 누적된다).
+
+> zsh 가 기본적으로 인터랙티브 모드에서 `#` 를 주석으로 인식하지 않을 수 있다 (`zsh: command not found: #`). 본 절은 코드블록 내부에 `#` 주석을 두지 않으며, 해설은 모두 코드블록 밖에 둔다. 한꺼번에 복사 붙여넣기 시에도 안전.
+
+### 1. healthcheck
+
+```bash
+curl -s http://localhost:8080/api/health
+```
+
+기대: `1`
+
+### 2. 세션 생성 → SESSION_ID 캡처
+
+```bash
+SESSION_RESPONSE=$(curl -s -X POST http://localhost:8080/api/sessions \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d '{"joinerId": 2}')
+echo "$SESSION_RESPONSE" | jq
+
+SESSION_ID=$(echo "$SESSION_RESPONSE" | jq -r '.data.id')
+echo "SESSION_ID=$SESSION_ID"
+```
+
+기대: `data.status="SUSPENDED"`, `SESSION_ID` 가 정수로 출력 (이후 단계에서 사용).
+
+### 3. presence 초기 상태 — 둘 다 offline
+
+```bash
+curl -s "http://localhost:8080/api/sessions/${SESSION_ID}/presence" \
+  -H "X-User-Id: 1" | jq
+```
+
+기대: `creatorOnline=false`, `joinerOnline=false` (아직 connect 호출 X).
+
+### 4. 양쪽 connect (JOIN) → presence 둘 다 online
+
+```bash
+curl -s -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/connect" \
+  -H "X-User-Id: 1" | jq
+
+curl -s -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/connect" \
+  -H "X-User-Id: 2" | jq
+
+curl -s "http://localhost:8080/api/sessions/${SESSION_ID}/presence" \
+  -H "X-User-Id: 1" | jq
+```
+
+기대 (위에서부터):
+- 1번째 connect (user1): `eventType=JOIN`
+- 2번째 connect (user2): `eventType=JOIN`
+- presence: `creatorOnline=true`, `joinerOnline=true`
+
+### 5. user1 disconnect → reconnect (RECONNECT 분기)
+
+```bash
+curl -s -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/disconnect" \
+  -H "X-User-Id: 1" | jq
+
+curl -s -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/connect" \
+  -H "X-User-Id: 1" | jq
+```
+
+기대 (위에서부터):
+- disconnect: `eventType=DISCONNECT`, `noop=false`
+- connect: `eventType=RECONNECT` — events 의 기존 JOIN row 가 분기 기준이므로 두 번째 이후는 항상 RECONNECT
+
+### 6. 메시지 작성 → MESSAGE_ID 캡처 + T_MID 기록
+
+```bash
+MSG_RESPONSE=$(curl -s -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{
+    \"eventType\": \"MESSAGE_CREATED\",
+    \"clientEventId\": \"$(uuidgen)\",
+    \"payload\": { \"content\": \"첫 메시지\" }
+  }")
+echo "$MSG_RESPONSE" | jq
+
+MESSAGE_ID=$(echo "$MSG_RESPONSE" | jq -r '.data.messageId')
+echo "MESSAGE_ID=$MESSAGE_ID"
+```
+
+후속 EDIT/DELETE 직전 시각을 timeline 결정성 검증용으로 기록한다 (`T_MID`). `sleep 1` 은 시계 해상도 차이로 다음 단계 이벤트와 같은 초로 기록되는 것을 회피하기 위함.
+
+```bash
+sleep 1
+T_MID=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+echo "T_MID=$T_MID"
+sleep 1
+```
+
+### 7. 두 번째 메시지 (user2) → EDIT → DELETE (첫 메시지)
+
+```bash
+curl -s -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 2" \
+  -d "{
+    \"eventType\": \"MESSAGE_CREATED\",
+    \"clientEventId\": \"$(uuidgen)\",
+    \"payload\": { \"content\": \"두 번째 메시지\" }
+  }" | jq
+
+curl -s -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{
+    \"eventType\": \"MESSAGE_EDITED\",
+    \"clientEventId\": \"$(uuidgen)\",
+    \"payload\": { \"messageId\": ${MESSAGE_ID}, \"content\": \"수정됨\" }
+  }" | jq
+
+curl -s -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/events" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{
+    \"eventType\": \"MESSAGE_DELETED\",
+    \"clientEventId\": \"$(uuidgen)\",
+    \"payload\": { \"messageId\": ${MESSAGE_ID} }
+  }" | jq
+```
+
+### 8. messages 조회 — 마스킹 / 편집 결과 확인
+
+```bash
+curl -s "http://localhost:8080/api/sessions/${SESSION_ID}/messages" \
+  -H "X-User-Id: 2" | jq
+```
+
+기대:
+- `[0]` 첫 메시지 → `content="삭제된 메시지입니다."`, `editedAt`/`deletedAt` 모두 채워짐
+- `[1]` 두 번째 메시지 → `content="두 번째 메시지"`, `editedAt`/`deletedAt` 모두 null
+
+### 9. timeline 결정성 — T_MID vs NOW
+
+T_MID 시점 (EDIT/DELETE 이전) — 첫 메시지만, 원문 그대로:
+
+```bash
+curl -s "http://localhost:8080/api/sessions/${SESSION_ID}/timeline?at=${T_MID}" \
+  -H "X-User-Id: 1" | jq
+```
+
+기대: `messages` 1건, `content="첫 메시지"`, `editedAt`/`deletedAt` 모두 null.
+
+현재 시점 — 두 메시지 모두, 첫 메시지는 마스킹:
+
+```bash
+T_NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+curl -s "http://localhost:8080/api/sessions/${SESSION_ID}/timeline?at=${T_NOW}" \
+  -H "X-User-Id: 1" | jq
+```
+
+기대: `messages` 2건, `[0]` 마스킹 + `deletedAt`, `[1]` 원문.
+
+결정성 — T_MID 로 다시 호출:
+
+```bash
+curl -s "http://localhost:8080/api/sessions/${SESSION_ID}/timeline?at=${T_MID}" \
+  -H "X-User-Id: 1" | jq
+```
+
+기대: 위 첫 호출과 100% 동일 응답 (events 가 immutable + append-only 라 시점 결정성이 자연 보장됨).
+
+### 10. user1 /end → presence clearSession invariant 확인
+
+```bash
+curl -s -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/end" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 1" \
+  -d "{ \"clientEventId\": \"$(uuidgen)\" }" | jq
+
+curl -s "http://localhost:8080/api/sessions/${SESSION_ID}/presence" \
+  -H "X-User-Id: 2" | jq
+```
+
+기대 (위에서부터):
+- /end: `status=ENDED`, `leftAt`/`endedAt` 채워짐
+- presence: 둘 다 `online=false` — `LeaveHandler.clearSession` 으로 in-memory bucket 제거. "끝난 세션엔 누구도 online 아님" invariant 가 응답으로 직접 관찰됨
+
+### 11. 가시성 — user1 vs user2
+
+```bash
+curl -s http://localhost:8080/api/sessions -H "X-User-Id: 1" | jq
+
+curl -s http://localhost:8080/api/sessions -H "X-User-Id: 2" | jq
+```
+
+기대 (위에서부터):
+- user1: `data=[]` — LEAVE 했으므로 목록에서 사라짐
+- user2: `data=[{status="ENDED", ...}]` — 아직 LEAVE 안 했으므로 ENDED 세션이 히스토리로 보임
+
+### 12. user2 cleanup /end
+
+```bash
+curl -s -X POST "http://localhost:8080/api/sessions/${SESSION_ID}/end" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: 2" \
+  -d "{ \"clientEventId\": \"$(uuidgen)\" }" | jq
+
+curl -s http://localhost:8080/api/sessions -H "X-User-Id: 2" | jq
+```
+
+기대 (위에서부터):
+- /end: HTTP 200 — ENDED 세션이지만 LEAVE 는 자기 가시성 정리 목적으로 허용. events 에 user2 의 LEAVE 만 추가, SESSION_ENDED 는 추가되지 않음 (라이프사이클 신호 중복 방지)
+- list: `data=[]`
+
+### 최종 DB 상태 (sanity check)
+
+| 테이블 | row 수 | 비고 |
+|---|---|---|
+| `sessions` | 1 | `status=ENDED`, `creator_left_at` / `joiner_left_at` / `ended_at` 모두 NOT NULL |
+| `messages` | 2 | 첫 메시지 `deleted_at`/`edited_at` 채워짐 (content 원본 보존), 두 번째 원본 그대로 |
+| `events` | 11 | JOIN×2, RECONNECT×1, DISCONNECT×1, MESSAGE_CREATED×2, MESSAGE_EDITED×1, MESSAGE_DELETED×1, LEAVE×2, SESSION_ENDED×1 (server-emitted 5건은 `client_event_id IS NULL`) |
+
+음성 케이스 / 멱등 재시도 / `/end` 두 번째 호출 시 SESSION_ENDED 미발행 같은 미세 invariant 는 아래 도메인 reference 절에서 검증한다.
 
 ---
 
